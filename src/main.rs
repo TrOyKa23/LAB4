@@ -15,10 +15,11 @@ use {defmt_rtt as _, panic_probe as _};
 async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
 
-    // --- PWM для RGB LED (TIM3) ---
-    // RED   → PA7 → TIM3_CH2
-    // GREEN → PC6 → TIM3_CH1
-    // BLUE  → PC9 → TIM3_CH4
+    // Set up PWM for the RGB LED using Timer 3
+    // Each color channel maps to a specific STM32 pin and timer channel:
+    //   RED   → PA7 → TIM3_CH2
+    //   GREEN → PC6 → TIM3_CH1
+    //   BLUE  → PC9 → TIM3_CH4
     let red: PwmPin<_, Ch2> = PwmPin::new(p.PA7, OutputType::PushPull);
     let green: PwmPin<_, Ch1> = PwmPin::new(p.PC6, OutputType::PushPull);
     let blue: PwmPin<_, Ch4> = PwmPin::new(p.PC9, OutputType::PushPull);
@@ -33,6 +34,9 @@ async fn main(_spawner: Spawner) {
         Default::default(),
     );
 
+    // Split into individual channels and configure polarity.
+    // The RGB LED on this board is common-anode, so we invert the signal:
+    // 0% duty = fully ON, 100% duty = fully OFF
     let mut rgb = pwm3.split();
     rgb.ch1.set_polarity(OutputPolarity::ActiveLow);
     rgb.ch2.set_polarity(OutputPolarity::ActiveLow);
@@ -41,8 +45,9 @@ async fn main(_spawner: Spawner) {
     rgb.ch2.enable();
     rgb.ch4.enable();
 
-    // --- PWM для сервомотора (TIM2) ---
-    // SIG → PB3 → TIM2_CH2 → D3
+    // Set up PWM for the servo motor using Timer 2
+    // The signal wire connects to: PB3 → TIM2_CH2 → Arduino pin D3
+    // Servo expects 50 Hz (one pulse every 20 ms)
     let servo_pin: PwmPin<_, Ch2> = PwmPin::new(p.PB3, OutputType::PushPull);
 
     let mut pwm2 = SimplePwm::new(
@@ -51,7 +56,7 @@ async fn main(_spawner: Spawner) {
         Some(servo_pin),
         None,
         None,
-        embassy_stm32::time::hz(50), // 50 Hz = 20ms период для сервы
+        embassy_stm32::time::hz(50),
         Default::default(),
     );
 
@@ -59,13 +64,14 @@ async fn main(_spawner: Spawner) {
     servo.ch2.enable();
 
     // =========================================================
-    // ЗАДАНИЕ 1a: RED LED на 25% яркости
+    // TASK 1a: Light up the RED LED at 25% brightness
     // =========================================================
     // rgb.ch2.set_duty_cycle_percent(25);
     // loop { Timer::after_secs(1).await; }
 
     // =========================================================
-    // ЗАДАНИЕ 1b: яркость от 0% до 100% шагом 10%
+    // TASK 1b: Fade the RED LED from 0% to 100% in 10% steps,
+    // changing every second
     // =========================================================
     // loop {
     //     let mut duty: u8 = 0;
@@ -77,13 +83,14 @@ async fn main(_spawner: Spawner) {
     // }
 
     // =========================================================
-    // ЗАДАНИЕ 2: потенциометр (ADC A0=PA0) → яркость RED LED
+    // TASK 2: Read the potentiometer via ADC (A0 = PA0) and
+    // use it to control the brightness of the RED LED
     // =========================================================
     // let mut adc = adc::Adc::new(p.ADC1);
     // adc.set_resolution(adc::Resolution::BITS12);
     // adc.set_sample_time(adc::SampleTime::CYCLES160_5);
     // let mut adc_pin = p.PA0;
-    // const MAX_ADC: u32 = 4095;
+    // const MAX_ADC: u32 = 4095; // 12-bit ADC max value
     // loop {
     //     let level: u16 = adc.blocking_read(&mut adc_pin);
     //     let duty = (level as u32 * 100 / MAX_ADC) as u8;
@@ -93,17 +100,18 @@ async fn main(_spawner: Spawner) {
     // }
 
     // =========================================================
-    // ЗАДАНИЕ 3: RGB LED red → yellow → blue по кнопке S4 (PA8)
+    // TASK 3: Cycle RGB LED through red → yellow → blue
+    // each time button S4 (PA8 = D7) is pressed
     // =========================================================
     // let button = Input::new(p.PA8, Pull::Up);
     // let mut color: u8 = 0;
-    // rgb.ch2.set_duty_cycle_percent(100);
+    // rgb.ch2.set_duty_cycle_percent(100); // start with red
     // rgb.ch1.set_duty_cycle_percent(0);
     // rgb.ch4.set_duty_cycle_percent(0);
     // let mut last_pressed = false;
     // loop {
-    //     let pressed = button.is_low();
-    //     if pressed && !last_pressed {
+    //     let pressed = button.is_low(); // button pulls low when pressed
+    //     if pressed && !last_pressed {  // detect the moment of press
     //         color = (color + 1) % 3;
     //         match color {
     //             0 => {
@@ -113,6 +121,7 @@ async fn main(_spawner: Spawner) {
     //                 defmt::info!("Color: RED");
     //             }
     //             1 => {
+    //                 // Yellow = red + green mixed together
     //                 rgb.ch2.set_duty_cycle_percent(100);
     //                 rgb.ch1.set_duty_cycle_percent(100);
     //                 rgb.ch4.set_duty_cycle_percent(0);
@@ -128,11 +137,15 @@ async fn main(_spawner: Spawner) {
     //         }
     //     }
     //     last_pressed = pressed;
-    //     Timer::after_millis(20).await;
+    //     Timer::after_millis(20).await; // small delay to debounce the button
     // }
 
     // =========================================================
-    // ЗАДАНИЕ 4: фоторезистор (ADC A2=PA4) → цвет RGB LED
+    // TASK 4: Read light intensity from the photoresistor (A2 = PA4)
+    // and change the RGB LED color based on how bright it is:
+    //   dark  (0..1365)    → RED
+    //   medium (1366..2730) → GREEN
+    //   bright (2731..4095) → BLUE
     // =========================================================
     // let mut adc = adc::Adc::new(p.ADC1);
     // adc.set_resolution(adc::Resolution::BITS12);
@@ -161,19 +174,19 @@ async fn main(_spawner: Spawner) {
     // }
 
     // =========================================================
-    // ЗАДАНИЕ 5: сервомотор 0° → 180° → 0° в цикле
-    // SIG → PB3 → TIM2_CH2 (D3)
-    // 50 Hz → период 20ms
-    // 0°   = 0.5ms pulse → set_duty_cycle_fraction(25, 1000)
-    // 180° = 2.5ms pulse → set_duty_cycle_fraction(125, 1000)
+    // TASK 5: Move the servo motor smoothly between 0° and 180°
+    // in a continuous loop.
+    //
+    // Servo is connected to: PB3 → TIM2_CH2 → D3
+    // At 50 Hz, the period is 20 ms. Pulse width controls angle:
+    //   0°   = 0.5 ms pulse → duty fraction 25/1000
+    //   180° = 2.5 ms pulse → duty fraction 125/1000
     // =========================================================
     loop {
-        // 0 градусов
         servo.ch2.set_duty_cycle_fraction(25, 1000);
         defmt::info!("Servo: 0 degrees");
         Timer::after_secs(1).await;
 
-        // 180 градусов
         servo.ch2.set_duty_cycle_fraction(125, 1000);
         defmt::info!("Servo: 180 degrees");
         Timer::after_secs(1).await;
